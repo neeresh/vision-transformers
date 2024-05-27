@@ -8,6 +8,8 @@ from torch import nn
 import torch.nn.functional as F
 from torchvision.ops import StochasticDepth, MLP, Permute
 
+from models.image_classification.base import BaseTransformer
+
 """
 Reference: https://github.com/pytorch/vision/blob/main/torchvision/models/swin_transformer.py
 """
@@ -224,14 +226,16 @@ class SwinTransformerBlock(nn.Module):
         return x
 
 
-class SwinTransformer(nn.Module):
+class SwinTransformer(BaseTransformer):
     def __init__(self, patch_size: List[int], embed_dim: int, depths: List[int], num_heads: List[int],
                  window_size: List[int], mlp_ratio: float = 4.0, dropout: float = 0.0, attention_dropout: float = 0.0,
                  stochastic_depth_prob: float = 0.1, num_classes: int = 100,
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
                  block: Optional[Callable[..., nn.Module]] = None,
-                 downsample_layer: Callable[..., nn.Module] = PatchMerging):
-        super().__init__()
+                 downsample_layer: Callable[..., nn.Module] = PatchMerging, *args, **kwargs):
+
+        super().__init__(*args, **kwargs)
+
         self.num_classes = num_classes
 
         if block is None:

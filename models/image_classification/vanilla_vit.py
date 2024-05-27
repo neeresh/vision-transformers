@@ -2,12 +2,16 @@ import math
 from collections import OrderedDict
 
 import torch
-from torch import nn
+from torch import nn, optim
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from models.image_classification.base import BaseTransformer
 
 from typing import Callable, List, Optional
 from functools import partial
+
+from torch.nn import Unfold
 
 
 class MLP(torch.nn.Sequential):
@@ -97,10 +101,28 @@ class Encoder(nn.Module):
 
 class ViT(BaseTransformer):
     def __init__(self, image_size, patch_size, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
-                 num_classes, norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
-                 *args, **kwargs):
-        super().__init__(image_size, patch_size, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
-                         num_classes, *args, **kwargs)
+                 num_classes, norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6), *args,
+                 **kwargs):
+
+        super().__init__(*args, **kwargs)
+
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.num_patches = (image_size // patch_size) ** 2
+        self.num_layers = num_layers
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        self.mlp_dim = mlp_dim
+        self.dropout = dropout
+        self.attention_dropout = attention_dropout
+        self.num_classes = num_classes
+        self.norm_layer = norm_layer
+
+        self.patch_embedding = nn.Linear(self.patch_size * self.patch_size * 3, self.hidden_dim)
+        self.positional_encoding = nn.Parameter(torch.empty(1, self.num_patches, self.hidden_dim).normal_(std=0.02))
+        self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+
+        self.device = 'cpu'
 
         self.encoder = Encoder(num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
                                dropout=dropout, attention_dropout=attention_dropout, norm_layer=norm_layer)
@@ -117,6 +139,32 @@ class ViT(BaseTransformer):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
+    def get_patches(self, images):
+        """
+        Divides an image into patches
+        """
+        self.batch_size, channels, _, _ = images.shape
+        images = Unfold(kernel_size=self.patch_size, stride=self.patch_size)(images)
+        images = images.view(self.batch_size, channels, self.patch_size, self.patch_size, -1)
+        images = images.permute(0, 4, 1, 2, 3)  # (batch_size, num_patches, channels, patch_size, patch_size)
+
+        return images
+
+    def patch_embedding_position_encoding(self, patches):
+        # Flatten the patches
+        patches = patches.view(self.batch_size, self.num_patches,
+                               -1)  # (batch_size, num_patches, patch_size*patch_size*3)
+        patch_embeddings = self.patch_embedding(patches)  # (batch_size, num_patches, hidden_dim)
+
+        # Sequence Length = number of patches + class token
+        embeddings = patch_embeddings + self.positional_encoding
+
+        # Adding class token
+        class_token = self.class_token.expand(self.batch_size, -1, -1)
+        embeddings = torch.cat([class_token, embeddings], dim=1)
+
+        return embeddings
+
     def forward(self, images):
         patches = self.get_patches(images)
         embeddings = self.patch_embedding_position_encoding(patches)
@@ -127,3 +175,133 @@ class ViT(BaseTransformer):
         output = self.heads(class_token_output)
 
         return patches, embeddings, encoder_output, class_token_output, output
+
+    def train_model(self, model, train_loader: DataLoader, test_loader: DataLoader, epochs: int,
+                    val_loader: Optional[DataLoader] = None):
+
+        # Define the loss function and optimizer
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=1e-4)
+
+        # To store metrics
+        train_losses = []
+        val_losses = []
+        test_losses = []
+        train_accuracies = []
+        val_accuracies = []
+        test_accuracies = []
+
+        for epoch in range(epochs):
+            model.train()
+            running_train_loss = 0.0
+            correct_train = 0
+            total_train = 0
+
+            # Training phase
+            train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", unit="batch")
+            for images, labels in train_loader_tqdm:
+                images, labels = images.to(self.device), labels.to(self.device)
+
+                optimizer.zero_grad()
+                _, _, _, _, outputs = model(images)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+                running_train_loss += loss.item() * images.size(0)
+                _, predicted = torch.max(outputs, 1)
+                total_train += labels.size(0)
+                correct_train += (predicted == labels).sum().item()
+
+                # Update tqdm description for training progress
+                train_loader_tqdm.set_postfix({
+                    "Train Loss": running_train_loss / total_train,
+                    "Train Acc": correct_train / total_train
+                })
+
+            epoch_train_loss = running_train_loss / len(train_loader.dataset)
+            epoch_train_accuracy = correct_train / total_train
+            train_losses.append(epoch_train_loss)
+            train_accuracies.append(epoch_train_accuracy)
+
+            # Validation phase
+            if val_loader:
+                model.eval()
+                running_val_loss = 0.0
+                correct_val = 0
+                total_val = 0
+
+                with torch.no_grad():
+                    for images, labels in val_loader:
+                        images, labels = images.to(self.device), labels.to(self.device)
+                        _, _, _, _, outputs = model(images)
+                        loss = criterion(outputs, labels)
+                        running_val_loss += loss.item() * images.size(0)
+                        _, predicted = torch.max(outputs, 1)
+                        total_val += labels.size(0)
+                        correct_val += (predicted == labels).sum().item()
+
+                epoch_val_loss = running_val_loss / len(val_loader.dataset)
+                epoch_val_accuracy = correct_val / total_val
+                val_losses.append(epoch_val_loss)
+                val_accuracies.append(epoch_val_accuracy)
+            else:
+                epoch_val_loss = None
+                epoch_val_accuracy = None
+
+            # Testing phase
+            model.eval()
+            running_test_loss = 0.0
+            correct_test = 0
+            total_test = 0
+
+            with torch.no_grad():
+                for images, labels in test_loader:
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    _, _, _, _, outputs = model(images)
+                    loss = criterion(outputs, labels)
+                    running_test_loss += loss.item() * images.size(0)
+                    _, predicted = torch.max(outputs, 1)
+                    total_test += labels.size(0)
+                    correct_test += (predicted == labels).sum().item()
+
+            epoch_test_loss = running_test_loss / len(test_loader.dataset)
+            epoch_test_accuracy = correct_test / total_test
+            test_losses.append(epoch_test_loss)
+            test_accuracies.append(epoch_test_accuracy)
+
+            # Update tqdm description for the entire epoch
+            train_loader_tqdm.set_postfix({
+                "Train Loss": epoch_train_loss,
+                "Train Acc": epoch_train_accuracy,
+                "Val Loss": epoch_val_loss if val_loader else "N/A",
+                "Val Acc": epoch_val_accuracy if val_loader else "N/A",
+                "Test Loss": epoch_test_loss,
+                "Test Acc": epoch_test_accuracy
+            })
+
+        return {
+            "train_loss": train_losses,
+            "val_loss": val_losses if val_loader else None,
+            "test_loss": test_losses,
+            "train_accuracy": train_accuracies,
+            "val_accuracy": val_accuracies if val_loader else None,
+            "test_accuracy": test_accuracies
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

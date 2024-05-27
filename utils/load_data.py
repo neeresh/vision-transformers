@@ -47,7 +47,7 @@ def _get_transformations(dataset_name):
         train_transforms = [v2.RandomCrop(32, padding=4), v2.RandomHorizontalFlip(), v2.ColorJitter(brightness=63 / 255)]
 
         train_transforms = v2.Compose([*train_transforms, *common_transforms])
-        test_transforms = common_transforms
+        test_transforms = v2.Compose(*[common_transforms])
 
         return train_transforms, test_transforms
 
@@ -56,7 +56,7 @@ def _get_transformations(dataset_name):
         train_transforms = [v2.RandomCrop(32, padding=4), v2.RandomHorizontalFlip(p=0.5), v2.ColorJitter(brightness=63 / 255),]
 
         train_transforms = v2.Compose([*train_transforms, *common_transforms])
-        test_transforms = common_transforms
+        test_transforms = v2.Compose(*[common_transforms])
 
         return train_transforms, test_transforms
 
