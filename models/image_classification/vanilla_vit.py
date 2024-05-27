@@ -97,11 +97,10 @@ class Encoder(nn.Module):
 
 class ViT(BaseTransformer):
     def __init__(self, image_size, patch_size, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
-                 num_classes, representation_size: Optional[int] = None,
-                 norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
+                 num_classes, norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
                  *args, **kwargs):
         super().__init__(image_size, patch_size, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
-                         num_classes, representation_size, *args, **kwargs)
+                         num_classes, *args, **kwargs)
 
         self.encoder = Encoder(num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
                                dropout=dropout, attention_dropout=attention_dropout, norm_layer=norm_layer)
@@ -127,4 +126,4 @@ class ViT(BaseTransformer):
         class_token_output = encoder_output[:, 0]
         output = self.heads(class_token_output)
 
-        return patches, embeddings, encoder_output, output
+        return patches, embeddings, encoder_output, class_token_output, output

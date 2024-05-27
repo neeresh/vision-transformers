@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import seaborn as sns
 
 
 def plot_patches(patched_images, images, labels, num_images=3):
@@ -16,3 +17,13 @@ def plot_patches(patched_images, images, labels, num_images=3):
     plt.tight_layout()
     plt.show()
     plt.close()
+
+
+def plot_attention_maps(attention_weights, num_heads):
+    # https://github.com/jeonsworld/ViT-pytorch/tree/main -> Correct implementation of attention maps for visualizing.
+    for layer_idx, layer_attn_weights in enumerate(attention_weights):
+        for head_idx in range(num_heads):
+            plt.figure(figsize=(10, 10))
+            sns.heatmap(layer_attn_weights[0, head_idx].detach().cpu().numpy(), cmap="viridis")
+            plt.title(f"Layer {layer_idx + 1}, Head {head_idx + 1}")
+            plt.show()

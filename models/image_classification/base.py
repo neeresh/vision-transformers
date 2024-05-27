@@ -9,7 +9,7 @@ from torch.nn import Unfold
 
 class BaseTransformer(nn.Module):
     def __init__(self, image_size, patch_size, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
-                 num_classes, representation_size,
+                 num_classes,
                  norm_layer: Callable[..., nn.Module] = partial(nn.LayerNorm, eps=1e-6), *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_size = image_size
@@ -22,7 +22,6 @@ class BaseTransformer(nn.Module):
         self.dropout = dropout
         self.attention_dropout = attention_dropout
         self.num_classes = num_classes
-        self.representation_size = representation_size
         self.norm_layer = norm_layer
 
         self.patch_embedding = nn.Linear(self.patch_size * self.patch_size * 3, self.hidden_dim)
