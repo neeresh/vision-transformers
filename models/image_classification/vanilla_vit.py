@@ -122,7 +122,7 @@ class ViT(BaseTransformer):
         self.positional_encoding = nn.Parameter(torch.empty(1, self.num_patches, self.hidden_dim).normal_(std=0.02))
         self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
 
-        self.device = 'cpu'
+        self.device = 'cuda'
 
         self.encoder = Encoder(num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
                                dropout=dropout, attention_dropout=attention_dropout, norm_layer=norm_layer)
@@ -174,36 +174,28 @@ class ViT(BaseTransformer):
         class_token_output = encoder_output[:, 0]
         output = self.heads(class_token_output)
 
-        return patches, embeddings, encoder_output, class_token_output, output
+        return output
 
     def train_model(self, model, train_loader: DataLoader, test_loader: DataLoader, epochs: int,
                     val_loader: Optional[DataLoader] = None):
 
-        # Define the loss function and optimizer
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-        # To store metrics
-        train_losses = []
-        val_losses = []
-        test_losses = []
-        train_accuracies = []
-        val_accuracies = []
-        test_accuracies = []
+        train_losses, val_losses, test_losses = [], [], []
+        train_accuracies, val_accuracies, test_accuracies = [], [], []
 
         for epoch in range(epochs):
             model.train()
             running_train_loss = 0.0
-            correct_train = 0
-            total_train = 0
+            correct_train, total_train = 0, 0
 
-            # Training phase
             train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", unit="batch")
             for images, labels in train_loader_tqdm:
                 images, labels = images.to(self.device), labels.to(self.device)
 
                 optimizer.zero_grad()
-                _, _, _, _, outputs = model(images)
+                outputs = model(images)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
@@ -228,13 +220,12 @@ class ViT(BaseTransformer):
             if val_loader:
                 model.eval()
                 running_val_loss = 0.0
-                correct_val = 0
-                total_val = 0
+                correct_val, total_val = 0, 0
 
                 with torch.no_grad():
                     for images, labels in val_loader:
                         images, labels = images.to(self.device), labels.to(self.device)
-                        _, _, _, _, outputs = model(images)
+                        outputs = model(images)
                         loss = criterion(outputs, labels)
                         running_val_loss += loss.item() * images.size(0)
                         _, predicted = torch.max(outputs, 1)
@@ -246,19 +237,18 @@ class ViT(BaseTransformer):
                 val_losses.append(epoch_val_loss)
                 val_accuracies.append(epoch_val_accuracy)
             else:
-                epoch_val_loss = None
-                epoch_val_accuracy = None
+                epoch_val_loss = "N/A"
+                epoch_val_accuracy = "N/A"
 
             # Testing phase
             model.eval()
             running_test_loss = 0.0
-            correct_test = 0
-            total_test = 0
+            correct_test, total_test = 0, 0
 
             with torch.no_grad():
                 for images, labels in test_loader:
                     images, labels = images.to(self.device), labels.to(self.device)
-                    _, _, _, _, outputs = model(images)
+                    outputs = model(images)
                     loss = criterion(outputs, labels)
                     running_test_loss += loss.item() * images.size(0)
                     _, predicted = torch.max(outputs, 1)
@@ -270,38 +260,12 @@ class ViT(BaseTransformer):
             test_losses.append(epoch_test_loss)
             test_accuracies.append(epoch_test_accuracy)
 
-            # Update tqdm description for the entire epoch
-            train_loader_tqdm.set_postfix({
-                "Train Loss": epoch_train_loss,
-                "Train Acc": epoch_train_accuracy,
-                "Val Loss": epoch_val_loss if val_loader else "N/A",
-                "Val Acc": epoch_val_accuracy if val_loader else "N/A",
-                "Test Loss": epoch_test_loss,
-                "Test Acc": epoch_test_accuracy
-            })
+            tqdm.write(f"Epoch {epoch + 1}/{epochs} - "
+                       f"Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_accuracy:.4f}, "
+                       f"Val Loss: {epoch_val_loss}, Val Acc: {epoch_val_accuracy}, "
+                       f"Test Loss: {epoch_test_loss:.4f}, Test Acc: {epoch_test_accuracy:.4f}")
 
-        return {
-            "train_loss": train_losses,
-            "val_loss": val_losses if val_loader else None,
-            "test_loss": test_losses,
-            "train_accuracy": train_accuracies,
-            "val_accuracy": val_accuracies if val_loader else None,
-            "test_accuracy": test_accuracies
-        }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return {"train_loss": train_losses, "val_loss": val_losses if val_loader else None, "test_loss": test_losses,
+                "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
+                "test_accuracy": test_accuracies}
 
