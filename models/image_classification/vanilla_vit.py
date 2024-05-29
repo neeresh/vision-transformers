@@ -11,17 +11,18 @@ from models.image_classification.base import BaseTransformer
 from typing import Callable, List, Optional
 from functools import partial
 
-from torch.nn import Unfold
+"""
+References: https://github.com/pytorch/vision/blob/main/torchvision/models/vision_transformer.py
+"""
 
 
 class MLP(torch.nn.Sequential):
+
     def __init__(self, in_channels: int, hidden_channels: List[int],
                  norm_layer: Optional[Callable[..., torch.nn.Module]] = None,
-                 activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU,
+                activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU,
                  inplace: Optional[bool] = None, bias: bool = True, dropout: float = 0.0):
 
-        # The addition of `norm_layer` is inspired from the implementation of TorchMultimodal:
-        # https://github.com/facebookresearch/multimodal/blob/5dec8a/torchmultimodal/modules/layers/mlp.py
         params = {} if inplace is None else {"inplace": inplace}
 
         layers = []
@@ -41,10 +42,10 @@ class MLP(torch.nn.Sequential):
 
 
 class MLPBlock(MLP):
+
     def __init__(self, in_dim: int, mlp_dim: int, dropout: float):
         super().__init__(in_dim, [mlp_dim, in_dim], activation_layer=nn.GELU, inplace=None, dropout=dropout)
 
-        # Initializing weights
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -53,21 +54,24 @@ class MLPBlock(MLP):
 
 
 class EncoderBlock(nn.Module):
-    """Transformer encoder block."""
 
     def __init__(self, num_heads: int, hidden_dim: int, mlp_dim: int, dropout: float, attention_dropout: float,
                  norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6)):
-        super().__init__()
 
+        super().__init__()
         self.num_heads = num_heads
+
         self.ln_1 = norm_layer(hidden_dim)
         self.self_attention = nn.MultiheadAttention(hidden_dim, num_heads, dropout=attention_dropout, batch_first=True)
         self.dropout = nn.Dropout(dropout)
+
         self.ln_2 = norm_layer(hidden_dim)
         self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
 
     def forward(self, input: torch.Tensor):
+
         torch._assert(input.dim() == 3, f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}")
+
         x = self.ln_1(input)
         x, _ = self.self_attention(x, x, x, need_weights=False)
         x = self.dropout(x)
@@ -75,28 +79,30 @@ class EncoderBlock(nn.Module):
 
         y = self.ln_2(x)
         y = self.mlp(y)
-
         return x + y
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_layers, num_heads, hidden_dim, mlp_dim, dropout, attention_dropout, norm_layer, *args,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
 
+    def __init__(self, seq_length: int, num_layers: int, num_heads: int, hidden_dim: int, mlp_dim: int, dropout: float,
+                 attention_dropout: float, norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6)):
+
+        super().__init__()
+
+        self.pos_embedding = nn.Parameter(torch.empty(1, seq_length, hidden_dim).normal_(std=0.02))  # from BERT
         self.dropout = nn.Dropout(dropout)
         layers: OrderedDict[str, nn.Module] = OrderedDict()
         for i in range(num_layers):
-            layers[f"encoder_layer_{i}"] = EncoderBlock(num_heads, hidden_dim, mlp_dim, dropout, attention_dropout, norm_layer)
+            layers[f"encoder_layer_{i}"] = EncoderBlock(num_heads, hidden_dim, mlp_dim, dropout, attention_dropout,
+                                                        norm_layer)
         self.layers = nn.Sequential(layers)
         self.ln = norm_layer(hidden_dim)
 
-    def forward(self, images: torch.Tensor):
-        images = self.dropout(images)
-        images = self.layers(images)
-        images = self.ln(images)
+    def forward(self, input: torch.Tensor):
+        torch._assert(input.dim() == 3, f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}")
+        input = input + self.pos_embedding
 
-        return images
+        return self.ln(self.layers(self.dropout(input)))
 
 
 class ViT(BaseTransformer):
@@ -105,76 +111,108 @@ class ViT(BaseTransformer):
                  **kwargs):
 
         super().__init__(*args, **kwargs)
-
+        torch._assert(image_size % patch_size == 0, "Input shape indivisible by patch size!")
         self.image_size = image_size
         self.patch_size = patch_size
-        self.num_patches = (image_size // patch_size) ** 2
-        self.num_layers = num_layers
-        self.num_heads = num_heads
         self.hidden_dim = hidden_dim
         self.mlp_dim = mlp_dim
-        self.dropout = dropout
         self.attention_dropout = attention_dropout
+        self.dropout = dropout
         self.num_classes = num_classes
         self.norm_layer = norm_layer
 
-        self.patch_embedding = nn.Linear(self.patch_size * self.patch_size * 3, self.hidden_dim)
-        self.positional_encoding = nn.Parameter(torch.empty(1, self.num_patches, self.hidden_dim).normal_(std=0.02))
-        self.class_token = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+        self.num_patches = (image_size // patch_size) ** 2
+        self.num_layers = num_layers
+        self.num_heads = num_heads
 
-        self.device = 'cuda'
+        self.conv_proj = nn.Conv2d(in_channels=3, out_channels=hidden_dim, kernel_size=patch_size, stride=patch_size)
+        seq_length = (image_size // patch_size) ** 2
 
-        self.encoder = Encoder(num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
+        self.class_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+        seq_length += 1
+
+        self.encoder = Encoder(seq_length=seq_length, num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
                                dropout=dropout, attention_dropout=attention_dropout, norm_layer=norm_layer)
 
         heads_layers: OrderedDict[str, nn.Module] = OrderedDict()
         heads_layers["head"] = nn.Linear(hidden_dim, num_classes)
         self.heads = nn.Sequential(heads_layers)
-        self._initialize_weights()  # For classification head (output layer)
 
-    def _initialize_weights(self): # Initialize the weights of the classification head
-        for m in self.heads.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+        if isinstance(self.conv_proj, nn.Conv2d):
+            fan_in = self.conv_proj.in_channels * self.conv_proj.kernel_size[0] * self.conv_proj.kernel_size[1]
+            nn.init.trunc_normal_(self.conv_proj.weight, std=math.sqrt(1 / fan_in))
+            if self.conv_proj.bias is not None:
+                nn.init.zeros_(self.conv_proj.bias)
 
-    def get_patches(self, images):
-        """
-        Divides an image into patches
-        """
-        self.batch_size, channels, _, _ = images.shape
-        images = Unfold(kernel_size=self.patch_size, stride=self.patch_size)(images)
-        images = images.view(self.batch_size, channels, self.patch_size, self.patch_size, -1)
-        images = images.permute(0, 4, 1, 2, 3)  # (batch_size, num_patches, channels, patch_size, patch_size)
+        if isinstance(self.heads.head, nn.Linear):
+            nn.init.zeros_(self.heads.head.weight)
+            nn.init.zeros_(self.heads.head.bias)
+
+        self.device = 'cuda'
+
+    # def _initialize_weights(self): # Initialize the weights of the classification head
+    #     for m in self.heads.modules():
+    #         if isinstance(m, nn.Linear):
+    #             nn.init.xavier_uniform_(m.weight)
+    #             if m.bias is not None:
+    #                 nn.init.zeros_(m.bias)
+
+    # def get_patches(self, images):
+    #     """
+    #     Divides an image into patches
+    #     """
+    #     self.batch_size, channels, _, _ = images.shape
+    #     images = Unfold(kernel_size=self.patch_size, stride=self.patch_size)(images)
+    #     images = images.view(self.batch_size, channels, self.patch_size, self.patch_size, -1)
+    #     images = images.permute(0, 4, 1, 2, 3)  # (batch_size, num_patches, channels, patch_size, patch_size)
+    #
+    #     return images
+    #
+    # def patch_embedding_position_encoding(self, patches):
+    #     # Flatten the patches
+    #     patches = patches.view(self.batch_size, self.num_patches,
+    #                            -1)  # (batch_size, num_patches, patch_size*patch_size*3)
+    #     patch_embeddings = self.patch_embedding(patches)  # (batch_size, num_patches, hidden_dim)
+    #
+    #     # Sequence Length = number of patches + class token
+    #     embeddings = patch_embeddings + self.positional_encoding
+    #
+    #     # Adding class token
+    #     class_token = self.class_token.expand(self.batch_size, -1, -1)
+    #     embeddings = torch.cat([class_token, embeddings], dim=1)
+    #
+    #     return embeddings
+
+    def forward_features(self, images: torch.Tensor):
+        n, c, h, w = images.shape
+        p = self.patch_size
+
+        torch._assert(h == self.image_size, f"Wrong image height! Expected {self.image_size} but got {h}!")
+        torch._assert(w == self.image_size, f"Wrong image width! Expected {self.image_size} but got {w}!")
+
+        n_h = h // p
+        n_w = w // p
+
+        images = self.conv_proj(images)
+        images = images.reshape(n, self.hidden_dim, n_h * n_w)
+        images = images.permute(0, 2, 1)
+
+        n = images.shape[0]
+
+        batch_class_token = self.class_token.expand(n, -1, -1)
+        images = torch.cat([batch_class_token, images], dim=1)
+
+        images = self.encoder(images)
 
         return images
 
-    def patch_embedding_position_encoding(self, patches):
-        # Flatten the patches
-        patches = patches.view(self.batch_size, self.num_patches,
-                               -1)  # (batch_size, num_patches, patch_size*patch_size*3)
-        patch_embeddings = self.patch_embedding(patches)  # (batch_size, num_patches, hidden_dim)
+    def forward(self, images: torch.Tensor):
 
-        # Sequence Length = number of patches + class token
-        embeddings = patch_embeddings + self.positional_encoding
+        images = self.forward_features(images)
+        images = images[:, 0]
+        images = self.heads(images)
 
-        # Adding class token
-        class_token = self.class_token.expand(self.batch_size, -1, -1)
-        embeddings = torch.cat([class_token, embeddings], dim=1)
-
-        return embeddings
-
-    def forward(self, images):
-        patches = self.get_patches(images)
-        embeddings = self.patch_embedding_position_encoding(patches)
-        encoder_output = self.encoder(embeddings)
-
-        # Classifier "token" as used by standard language architectures
-        class_token_output = encoder_output[:, 0]
-        output = self.heads(class_token_output)
-
-        return output
+        return images
 
     def train_model(self, model, train_loader: DataLoader, test_loader: DataLoader, epochs: int,
                     val_loader: Optional[DataLoader] = None):
@@ -268,4 +306,3 @@ class ViT(BaseTransformer):
         return {"train_loss": train_losses, "val_loss": val_losses if val_loader else None, "test_loss": test_losses,
                 "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
                 "test_accuracy": test_accuracies}
-
