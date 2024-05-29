@@ -26,6 +26,7 @@ def get_args(model_name):
                      "num_heads": [4, 8, 16, 32],
                      "window_size": [4, 4], "mlp_ratio": 4.0, "dropout": 0.0, "attention_dropout": 0.0,
                      "stochastic_depth_prob": 0.5},
+
             'swin_tinv2': {"image_size": 32, "patch_size": [2, 2], "embed_dim": 96, "depths": [2, 2, 6, 2],
                        "num_heads": [3, 6, 12, 24],
                        "window_size": [4, 4], "mlp_ratio": 4.0, "dropout": 0.0, "attention_dropout": 0.0,
@@ -37,8 +38,30 @@ def get_args(model_name):
             'swin_basev2': {"image_size": 32, "patch_size": [2, 2], "embed_dim": 128, "depths": [2, 2, 18, 2],
                        "num_heads": [4, 8, 16, 32],
                        "window_size": [4, 4], "mlp_ratio": 4.0, "dropout": 0.0, "attention_dropout": 0.0,
-                       "stochastic_depth_prob": 0.5}
+                       "stochastic_depth_prob": 0.5},
+
+            'deit_tiny': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 3, "embed_dim": 192,
+                          "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                          "distilled_training": False},
+            'deit_small': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 6, "embed_dim": 384,
+                          "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                           "distilled_training": False},
+            'deit_base': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 12, "embed_dim": 768,
+                           "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                          "distilled_training": False},
+
+            'deit_tinydistil': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 3, "embed_dim": 192,
+                                "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                                "distilled_training": True},
+            'deit_smalldistil': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 6, "embed_dim": 384,
+                                 "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                                 "distilled_training": True},
+            'deit_basedistil': {"image_size": 32, "patch_size": 16, "num_layers": 12, "num_heads": 12, "embed_dim": 768,
+                                "mlp_ratio": 4.0, 'dropout': 0.0, 'attention_dropout': 0.0, "num_classes": 100,
+                                "distilled_training": True}
+
         }
+
     except:
         print(f"Unknown model name: {model_name}")
 
