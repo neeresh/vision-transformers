@@ -139,8 +139,8 @@ class DeiT(BaseTransformer):
 
 if __name__ == '__main__':
 
-    # args = get_args('deit_tinydistil_cifar100')
-    args = get_args('deit_tiny_cifar100')
+    args = get_args('deit_tinydistil_cifar100')
+    # args = get_args('deit_tiny_cifar100')
 
     # Getting loaders
     train_loader, val_loader, test_loader = get_train_test_loaders(dataset_name="cifar100", batch_size=256,
@@ -153,8 +153,11 @@ if __name__ == '__main__':
 
     # Training model
     if args['distilled_training']:
+        # Epoch 100/100 - Train Loss: 2.1546, Train Acc: 0.8789,
+        # Val Loss: 3.083437201309204, Val Acc: 0.2973,
+        # Test Loss: 2.9748, Test Acc: 0.3269
         metrics = deit.train_model_with_distillation(train_loader=train_loader, val_loader=val_loader,
-                                                     test_loader=test_loader, epochs=20)
+                                                     test_loader=test_loader, epochs=100)
     else:
         model = VisionTransformerDistilled(img_size=args["image_size"], patch_size=args["patch_size"],
                                            depth=args["num_layers"], num_heads=args["num_heads"],

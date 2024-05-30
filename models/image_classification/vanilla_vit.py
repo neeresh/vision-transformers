@@ -11,6 +11,9 @@ from models.image_classification.base import BaseTransformer
 from typing import Callable, List, Optional
 from functools import partial
 
+from utils.args import get_args
+from utils.load_data import get_train_test_loaders
+
 """
 References: https://github.com/pytorch/vision/blob/main/torchvision/models/vision_transformer.py
 """
@@ -306,3 +309,18 @@ class ViT(BaseTransformer):
         return {"train_loss": train_losses, "val_loss": val_losses if val_loader else None, "test_loss": test_losses,
                 "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
                 "test_accuracy": test_accuracies}
+
+
+if __name__ == '__main__':
+    # Epoch 100/100 - Train Loss: 0.9623, Train Acc: 0.7084,
+    # Val Loss: 2.0212210262298584, Val Acc: 0.5133,
+    # Test Loss: 1.9182, Test Acc: 0.5236
+    train_loader, val_loader, test_loader = get_train_test_loaders(dataset_name="cifar100", batch_size=256,
+                                                                   val_split=0.2, num_workers=4)
+    args = get_args("vit_tiny_cifar100")
+    vanilla_vit = ViT(image_size=args["image_size"], patch_size=args["patch_size"], num_layers=args["num_layers"],
+                      num_heads=args["num_heads"], hidden_dim=args["hidden_dim"], mlp_dim=args["mlp_dim"],
+                      dropout=args["dropout"], attention_dropout=args["attention_dropout"],
+                      num_classes=args["num_classes"])
+    vanilla_vit.to("cuda")
+    metrics = vanilla_vit.train_model(vanilla_vit, train_loader, test_loader, 100, val_loader)

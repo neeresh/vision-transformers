@@ -11,6 +11,8 @@ from torchvision.ops import StochasticDepth, MLP, Permute
 from tqdm import tqdm
 
 from models.image_classification.base import BaseTransformer
+from utils.args import get_args
+from utils.load_data import get_train_test_loaders
 
 """
 Reference: https://github.com/pytorch/vision/blob/main/torchvision/models/swin_transformer.py
@@ -393,3 +395,18 @@ class SwinTransformer(BaseTransformer):
         return {"train_loss": train_losses, "val_loss": val_losses if val_loader else None, "test_loss": test_losses,
                 "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
                 "test_accuracy": test_accuracies}
+
+if __name__ == '__main__':
+    # Epoch 100/100 - Train Loss: 0.1717, Train Acc: 0.9473,
+    # Val Loss: 2.543592349624634, Val Acc: 0.5449,
+    # Test Loss: 2.5355, Test Acc: 0.5441
+    train_loader, val_loader, test_loader = get_train_test_loaders(dataset_name="cifar100", batch_size=256,
+                                                                   val_split=0.2, num_workers=4)
+    args = get_args("swin_tiny_cifar100")
+    swin_tiny = SwinTransformer(patch_size=args["patch_size"], embed_dim=args["embed_dim"], depths=args["depths"],
+                                num_heads=args["num_heads"], window_size=args["window_size"],
+                                mlp_ratio=args["mlp_ratio"], dropout=args["dropout"],
+                                attention_dropout=args["attention_dropout"],
+                                stochastic_depth_prob=args["stochastic_depth_prob"], num_classes=args["num_classes"])
+    swin_tiny.to("cuda")
+    metrics = swin_tiny.train_model(swin_tiny, train_loader, test_loader, 100, val_loader)
