@@ -17,3 +17,5 @@ This paper introduces a novel approach called Conditional Positional Encoding (C
 CPE, introduced in this paper, offers a dynamic way of adding positional information to Vision Transformers (ViT). By generating encodings based on nearby tokens in an image, CPE enhances the flexibility of transformers during inference, enabling them to adapt to different image sizes and accurately locate objects. This approach, termed Conditional Position encoding Vision Transformer (CPVT), improves the performance of various vision tasks like object detection and segmentation, and works well with different input resolutions.
 
 
+### Transformer in Transformer (TNT)
+**Paper:** [Read the Paper](https://arxiv.org/pdf/2103.00112)

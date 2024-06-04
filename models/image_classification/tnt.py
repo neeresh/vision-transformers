@@ -18,9 +18,9 @@ Reference: https://github.com/huawei-noah/Efficient-AI-Backbones/blob/master/tnt
 
 
 class PatchEmbedding(nn.Module):
-    def __init__(self, img_size, patch_size, inner_dim, inner_stride, *args, **kwargs):
+    def __init__(self, image_size, patch_size, inner_dim, inner_stride, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        image_size = to_2tuple(img_size)
+        image_size = to_2tuple(image_size)
         patch_size = to_2tuple(patch_size)
         num_patches = (image_size[1] // patch_size[1]) * (image_size[0] // patch_size[0])
         self.image_size = image_size
@@ -39,7 +39,7 @@ class PatchEmbedding(nn.Module):
         assert height == self.image_size[0] and width == self.image_size[
             1], "Input Image and Expected size doesn't match"
         images = self.unfold(images)
-        images = images.transpose(1, 2).reshape(batch_size * self.num_patches, channels * self.patch_size)
+        images = images.transpose(1, 2).reshape(batch_size * self.num_patches, channels, *self.patch_size)
         images = self.proj(images)
         images = images.reshape(batch_size * self.num_patches, self.inner_dim, -1).transpose(1, 2)
 
@@ -139,7 +139,7 @@ class Block(nn.Module):
         self.outer_norm1 = norm_layer(outer_dim)
         self.outer_attn = Attention(outer_dim, outer_dim, num_heads=outer_num_heads, qkv_bias=qkv_bias,
                                     qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
-        self.droppath = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.outer_norm2 = norm_layer(outer_dim)
         self.outer_mlp = MLP(in_features=outer_dim, hidden_features=int(outer_dim * mlp_ratio),
                              out_features=outer_dim, act_layer=act_layer, drop=drop)
@@ -178,17 +178,18 @@ class TNT(BaseTransformer, ABC):
         self.num_classes = num_classes
         self.num_features = self.outer_dim = outer_dim
 
-        self.patch_embed = PatchEmbedding(image_size, patch_size, inner_dim, inner_stride)
+        self.patch_embed = PatchEmbedding(image_size=image_size, patch_size=patch_size, inner_dim=inner_dim,
+                                          inner_stride=inner_stride)
         self.num_patches = num_patches = self.patch_embed.num_patches
         num_words = self.patch_embed.num_words
 
-        self.proj_norm1 = norm_layer(num_words)
+        self.proj_norm1 = norm_layer(num_words * inner_dim)
         self.proj = nn.Linear(num_words * inner_dim, outer_dim)
         self.proj_norm2 = norm_layer(outer_dim)
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, outer_dim))
         self.outer_tokens = nn.Parameter(torch.zeros(1, num_patches, outer_dim), requires_grad=False)
-        self.outer_pos = nn.Parameter(torch.zeros(1, num_patches + 1, inner_dim))
+        self.outer_pos = nn.Parameter(torch.zeros(1, num_patches + 1, outer_dim))
         self.inner_pos = nn.Parameter(torch.zeros(1, num_words, inner_dim))
         self.pos_drop = nn.Dropout(p=dropout)
 
@@ -220,6 +221,8 @@ class TNT(BaseTransformer, ABC):
             trunc_normal_(self.inner_pos, std=.02)
             self.apply(self._init_weights)
 
+            self.device = 'cuda'
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -231,7 +234,7 @@ class TNT(BaseTransformer, ABC):
 
     def forward_features(self, x):
         B = x.shape[0]
-        inner_tokens = self.patch_embed(x) + self.inner_pos  # B*N, 8*8, C
+        inner_tokens = self.patch_embed(x) + self.inner_pos
 
         outer_tokens = self.proj_norm2(self.proj(self.proj_norm1(inner_tokens.reshape(B, self.num_patches, -1))))
         outer_tokens = torch.cat((self.cls_token.expand(B, -1, -1), outer_tokens), dim=1)
@@ -345,7 +348,11 @@ class TNT(BaseTransformer, ABC):
 
 
 if __name__ == '__main__':
+    # Train Loss: 0.0719, Train Acc: 0.9782,
+    # Val Loss: 3.8574198764801024, Val Acc: 0.4083,
+    # Test Loss: 3.7711, Test Acc: 0.4177
     train_loader, val_loader, test_loader = get_train_test_loaders(dataset_name="cifar100", batch_size=256,
                                                                    val_split=0.2, num_workers=4)
     tnt = TNT()
+    tnt.to('cuda')
     metrics = tnt.train_model(tnt, train_loader, test_loader, 100, val_loader)
