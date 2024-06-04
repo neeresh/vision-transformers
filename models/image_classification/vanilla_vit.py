@@ -23,7 +23,7 @@ class MLP(torch.nn.Sequential):
 
     def __init__(self, in_channels: int, hidden_channels: List[int],
                  norm_layer: Optional[Callable[..., torch.nn.Module]] = None,
-                activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU,
+                 activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU,
                  inplace: Optional[bool] = None, bias: bool = True, dropout: float = 0.0):
 
         params = {} if inplace is None else {"inplace": inplace}
@@ -60,7 +60,6 @@ class EncoderBlock(nn.Module):
 
     def __init__(self, num_heads: int, hidden_dim: int, mlp_dim: int, dropout: float, attention_dropout: float,
                  norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6)):
-
         super().__init__()
         self.num_heads = num_heads
 
@@ -72,7 +71,6 @@ class EncoderBlock(nn.Module):
         self.mlp = MLPBlock(hidden_dim, mlp_dim, dropout)
 
     def forward(self, input: torch.Tensor):
-
         torch._assert(input.dim() == 3, f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}")
 
         x = self.ln_1(input)
@@ -88,8 +86,8 @@ class EncoderBlock(nn.Module):
 class Encoder(nn.Module):
 
     def __init__(self, seq_length: int, num_layers: int, num_heads: int, hidden_dim: int, mlp_dim: int, dropout: float,
-                 attention_dropout: float, norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6)):
-
+                 attention_dropout: float,
+                 norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6)):
         super().__init__()
 
         self.pos_embedding = nn.Parameter(torch.empty(1, seq_length, hidden_dim).normal_(std=0.02))  # from BERT
@@ -134,7 +132,8 @@ class ViT(BaseTransformer):
         self.class_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
         seq_length += 1
 
-        self.encoder = Encoder(seq_length=seq_length, num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim, mlp_dim=mlp_dim,
+        self.encoder = Encoder(seq_length=seq_length, num_layers=num_layers, num_heads=num_heads, hidden_dim=hidden_dim,
+                               mlp_dim=mlp_dim,
                                dropout=dropout, attention_dropout=attention_dropout, norm_layer=norm_layer)
 
         heads_layers: OrderedDict[str, nn.Module] = OrderedDict()
@@ -310,6 +309,7 @@ class ViT(BaseTransformer):
                 "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
                 "test_accuracy": test_accuracies}
 
+
 if __name__ == '__main__':
     # Epoch 100/100 - Train Loss: 1.1087, Train Acc: 0.6708,
     # Val Loss: 2.3863208625793457, Val Acc: 0.4553,
@@ -318,8 +318,9 @@ if __name__ == '__main__':
                                                                    val_split=0.2, num_workers=4)
     args = get_args("vit_tiny_cifar100")
     vit = ViT(image_size=args["image_size"], patch_size=args["patch_size"], num_layers=args["num_layers"],
-                      num_heads=args["num_heads"], hidden_dim=args["hidden_dim"], mlp_dim=args["mlp_dim"],
-                      dropout=args["dropout"], attention_dropout=args["attention_dropout"],
-                      num_classes=args["num_classes"])
-    vit.to("cuda")
-    metrics = cpe_vit.train_model(cpe_vit, train_loader, test_loader, 100, val_loader)
+              num_heads=args["num_heads"], hidden_dim=args["hidden_dim"], mlp_dim=args["mlp_dim"],
+              dropout=args["dropout"], attention_dropout=args["attention_dropout"],
+              num_classes=args["num_classes"])
+    # vit.to("cuda")
+    print(vit)
+    # metrics = vit.train_model(vit, train_loader, test_loader, 100, val_loader)

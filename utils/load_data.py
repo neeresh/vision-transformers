@@ -6,18 +6,19 @@ from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import v2
 
 
-def get_train_test_loaders(dataset_name="cifar100", batch_size=128, num_workers=8, val_split=None):
+def get_train_test_loaders(dataset_name="cifar100", batch_size=128, num_workers=8, val_split=None,
+                           root_dir="../../data"):
     train_dataset = None
     test_dataset = None
 
     train_transforms, test_transforms = _get_transformations(dataset_name)
 
     if dataset_name.lower() == "cifar100":
-        train_dataset = torchvision.datasets.CIFAR100(root='./data', train=True, download=True, transform=train_transforms)
-        test_dataset = torchvision.datasets.CIFAR100(root='./data', train=False, download=True, transform=test_transforms)
+        train_dataset = torchvision.datasets.CIFAR100(root=root_dir, train=True, download=True, transform=train_transforms)
+        test_dataset = torchvision.datasets.CIFAR100(root=root_dir, train=False, download=True, transform=test_transforms)
     elif dataset_name.lower() == "cifar10":
-        train_dataset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=train_transforms)
-        test_dataset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=test_transforms)
+        train_dataset = torchvision.datasets.CIFAR10(root=root_dir, train=True, download=True, transform=train_transforms)
+        test_dataset = torchvision.datasets.CIFAR10(root=root_dir, train=False, download=True, transform=test_transforms)
     else:
         print(f"Dataset {dataset_name} is not supported.")
 
