@@ -150,8 +150,6 @@ class ViT(BaseTransformer):
             nn.init.zeros_(self.heads.head.weight)
             nn.init.zeros_(self.heads.head.bias)
 
-        self.device = 'cuda'
-
     # def _initialize_weights(self): # Initialize the weights of the classification head
     #     for m in self.heads.modules():
     #         if isinstance(m, nn.Linear):

@@ -1,12 +1,18 @@
 from abc import ABC
+from typing import Optional
 
 import torch
 from timm.layers import to_2tuple, DropPath, trunc_normal_
-from torch import nn
+from torch import nn, optim
+from tqdm import tqdm
 
 from models.image_classification.base import BaseTransformer
 from utils.args import get_args
 from utils.load_data import get_train_test_loaders
+
+from torch.utils.data import DataLoader
+
+import torch.nn.functional as F
 
 
 class PatchEmbedding(nn.Module):
@@ -116,6 +122,9 @@ class Block(nn.Module):
 
 
 class PVT(BaseTransformer, ABC):
+    """
+    Refernce: https://github.com/whai362/PVT (Slightly Modified)
+    """
     def __init__(self, image_size=32, patch_size=16, in_channels=3, num_classes=100, embed_dims=None, num_heads=None,
                  mlp_ratios=None, qkv_bias=False, qk_scale=None, drop_rate=0, attn_drop_rate=0, drop_path_rate=0,
                  norm_layer=nn.LayerNorm, depths=None, sr_ratios=None, num_stages=4, *args, **kwargs):
@@ -167,8 +176,8 @@ class PVT(BaseTransformer, ABC):
         self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
 
         for i in range(num_stages):
-            pos_embed = getattr(self, f"position_embedding{i + 1}")
-            trunc_normal_(pos_embed, std=.02)
+            position_embedding = getattr(self, f"position_embedding{i + 1}")
+            trunc_normal_(position_embedding, std=.02)
         trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
@@ -180,6 +189,14 @@ class PVT(BaseTransformer, ABC):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
+
+    def _get_pos_embed(self, pos_embed, patch_embed, H, W):
+        if H * W == self.patch_embedding1.num_patches:
+            return pos_embed
+        else:
+            return F.interpolate(
+                pos_embed.reshape(1, patch_embed.height, patch_embed.width, -1).permute(0, 3, 1, 2),
+                size=(H, W), mode="bilinear").reshape(1, -1, H * W).permute(0, 2, 1)
 
     def forward_features(self, x):
         B = x.shape[0]
@@ -215,14 +232,108 @@ class PVT(BaseTransformer, ABC):
 
         return x
 
+    def train_model(self, model, train_loader: DataLoader, test_loader: DataLoader, epochs: int,
+                    val_loader: Optional[DataLoader] = None):
+
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=1e-4)
+
+        train_losses, val_losses, test_losses = [], [], []
+        train_accuracies, val_accuracies, test_accuracies = [], [], []
+
+        for epoch in range(epochs):
+            model.train()
+            running_train_loss = 0.0
+            correct_train, total_train = 0, 0
+
+            train_loader_tqdm = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}", unit="batch")
+            for images, labels in train_loader_tqdm:
+                images, labels = images.to(self.device), labels.to(self.device)
+
+                optimizer.zero_grad()
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+
+                running_train_loss += loss.item() * images.size(0)
+                _, predicted = torch.max(outputs, 1)
+                total_train += labels.size(0)
+                correct_train += (predicted == labels).sum().item()
+
+                # Update tqdm description for training progress
+                train_loader_tqdm.set_postfix({
+                    "Train Loss": running_train_loss / total_train,
+                    "Train Acc": correct_train / total_train
+                })
+
+            epoch_train_loss = running_train_loss / len(train_loader.dataset)
+            epoch_train_accuracy = correct_train / total_train
+            train_losses.append(epoch_train_loss)
+            train_accuracies.append(epoch_train_accuracy)
+
+            # Validation phase
+            if val_loader:
+                model.eval()
+                running_val_loss = 0.0
+                correct_val, total_val = 0, 0
+
+                with torch.no_grad():
+                    for images, labels in val_loader:
+                        images, labels = images.to(self.device), labels.to(self.device)
+                        outputs = model(images)
+                        loss = criterion(outputs, labels)
+                        running_val_loss += loss.item() * images.size(0)
+                        _, predicted = torch.max(outputs, 1)
+                        total_val += labels.size(0)
+                        correct_val += (predicted == labels).sum().item()
+
+                epoch_val_loss = running_val_loss / len(val_loader.dataset)
+                epoch_val_accuracy = correct_val / total_val
+                val_losses.append(epoch_val_loss)
+                val_accuracies.append(epoch_val_accuracy)
+            else:
+                epoch_val_loss = "N/A"
+                epoch_val_accuracy = "N/A"
+
+            # Testing phase
+            model.eval()
+            running_test_loss = 0.0
+            correct_test, total_test = 0, 0
+
+            with torch.no_grad():
+                for images, labels in test_loader:
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                    running_test_loss += loss.item() * images.size(0)
+                    _, predicted = torch.max(outputs, 1)
+                    total_test += labels.size(0)
+                    correct_test += (predicted == labels).sum().item()
+
+            epoch_test_loss = running_test_loss / len(test_loader.dataset)
+            epoch_test_accuracy = correct_test / total_test
+            test_losses.append(epoch_test_loss)
+            test_accuracies.append(epoch_test_accuracy)
+
+            tqdm.write(f"Epoch {epoch + 1}/{epochs} - "
+                       f"Train Loss: {epoch_train_loss:.4f}, Train Acc: {epoch_train_accuracy:.4f}, "
+                       f"Val Loss: {epoch_val_loss}, Val Acc: {epoch_val_accuracy}, "
+                       f"Test Loss: {epoch_test_loss:.4f}, Test Acc: {epoch_test_accuracy:.4f}")
+
+        return {"train_loss": train_losses, "val_loss": val_losses if val_loader else None, "test_loss": test_losses,
+                "train_accuracy": train_accuracies, "val_accuracy": val_accuracies if val_loader else None,
+                "test_accuracy": test_accuracies}
+
 
 if __name__ == '__main__':
     train_loader, val_loader, test_loader = get_train_test_loaders(dataset_name="cifar100", batch_size=256,
                                                                    val_split=0.2, num_workers=4)
     args = get_args("vit_tiny_cifar100")
-    pvt = PVT(image_size=32, patch_size=16, in_channels=3, num_classes=100, embed_dims=None, num_heads=None,
+    pvt = PVT(image_size=32, patch_size=4, in_channels=3, num_classes=100, embed_dims=None, num_heads=None,
               mlp_ratios=None, qkv_bias=False, qk_scale=None, drop_rate=0, attn_drop_rate=0, drop_path_rate=0,
               norm_layer=nn.LayerNorm, depths=None, sr_ratios=None, num_stages=4)
-    # vit.to("cuda")
-    print(pvt)
-    # metrics = vit.train_model(vit, train_loader, test_loader, 100, val_loader)
+    pvt.to("mps")
+    # print(pvt)
+    metrics = pvt.train_model(pvt, train_loader, test_loader, 100, val_loader)
+    # print(pvt.patch_embedding1)

@@ -13,6 +13,13 @@ class BaseTransformer(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        if torch.backends.mps.is_available():
+            self.device = "mps"
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+        else:
+            self.device = "cpu"
+
     @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         pass
