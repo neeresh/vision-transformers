@@ -1,7 +1,9 @@
-from typing import List, Union
+import os
 
 import torch
 import torchvision
+from PIL import Image
+from pycocotools.coco import COCO
 from torch.utils.data import DataLoader, random_split
 from torchvision.transforms import v2
 
@@ -80,3 +82,56 @@ def _get_transformations(dataset_name):
         test_transforms = v2.Compose([*test_transforms, *common_transforms])
 
         return train_transforms, test_transforms
+
+
+class CocoDetection(torch.utils.data.Dataset):
+    def __init__(self, load_data, transform=None, target_transform=None):
+
+        if load_data == 'train':
+            root = './data/coco/images/train2017'
+            annFile = './data/coco/annotations/instances_train2017.json'
+        elif load_data == 'val':
+            root = './data/coco/images/val2017'
+            annFile = './data/coco/annotations/instances_val2017.json'
+        elif load_data == 'test':
+            root = './data/coco/images/test2017'
+        else:
+            ValueError(f"Load data options: 'train', 'val', and 'test'")
+
+        self.root = root
+        self.coco = COCO(annFile)
+        self.ids = list(self.coco.imgs.keys())
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __getitem__(self, index):
+        coco = self.coco
+        img_id = self.ids[index]
+        ann_ids = coco.getAnnIds(imgIds=img_id)
+        target = coco.loadAnns(ann_ids)
+
+        path = coco.loadImgs(img_id)[0]['file_name']
+
+        img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __repr__(self):
+        fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
+        fmt_str += '    Number of datapoints: {}\n'.format(self.__len__())
+        fmt_str += '    Root Location: {}\n'.format(self.root)
+        tmp = '    Transforms (if any): '
+        fmt_str += '{0}{1}\n'.format(tmp, self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+        tmp = '    Target Transforms (if any): '
+        fmt_str += '{0}{1}'.format(tmp, self.target_transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+        return fmt_str
+
+
