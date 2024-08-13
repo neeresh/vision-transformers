@@ -11,7 +11,7 @@ import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
 
-import datasets.transforms as T
+import utils.coco.transforms as T
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
@@ -144,8 +144,8 @@ def make_coco_transforms(image_set):
     raise ValueError(f'unknown {image_set}')
 
 
-def build(image_set, args):
-    root = Path(args.coco_path)
+def build(image_set, coco_path, masks):
+    root = Path(coco_path)
     assert root.exists(), f'provided COCO path {root} does not exist'
     mode = 'instances'
     PATHS = {
@@ -154,5 +154,5 @@ def build(image_set, args):
     }
 
     img_folder, ann_file = PATHS[image_set]
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args.masks)
+    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=masks)
     return dataset

@@ -10,6 +10,8 @@ from torchvision.ops import FrozenBatchNorm2d
 
 import torch.nn.functional as F
 
+from utils.coco.util.misc import nested_tensor_from_tensor_list
+
 
 class Joiner(nn.Sequential):
     def __init__(self, backbone, position_embedding):
@@ -124,6 +126,14 @@ class Detr(nn.Module):
         self.backbone = backbone
         self.aux_loss = aux_loss
 
+    def forward(self, samples: NestedTensor):
+        if isinstance(samples, (list, torch.Tensor)):
+            samples = nested_tensor_from_tensor_list(samples)
+        features, pos = self.backbone(samples)
+
+        print(features.shape, pos.shape)
+
+
 
 def set_model_and_positional_embeddings():
     hidden_dim = 512
@@ -142,5 +152,5 @@ def set_model_and_positional_embeddings():
 
 if __name__ == '__main__':
     backbone = set_model_and_positional_embeddings()
-    print(backbone)
+    transformer =
 
