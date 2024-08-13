@@ -10,11 +10,13 @@ from torch.nn import functional as F
 References: https://github.com/facebookresearch/deit/blob/main/losses.py
 """
 
+
 class DistillationLoss(torch.nn.Module):
     """
     This module wraps a standard criterion and adds an extra knowledge distillation loss by
     taking a teacher model prediction and using it as additional supervision.
     """
+
     def __init__(self, base_criterion: torch.nn.Module, teacher_model: torch.nn.Module,
                  distillation_type: str, alpha: float, tau: float):
         super().__init__()
@@ -22,8 +24,8 @@ class DistillationLoss(torch.nn.Module):
         self.teacher_model = teacher_model
         assert distillation_type in ['none', 'soft', 'hard']
         self.distillation_type = distillation_type
-        self.alpha = alpha # Determines the relative importance of the base loss and the distillation loss [0-1]
-        self.tau = tau # Temperature parameter used for soft distillation
+        self.alpha = alpha  # Determines the relative importance of the base loss and the distillation loss [0-1]
+        self.tau = tau  # Temperature parameter used for soft distillation
 
     def forward(self, inputs, outputs, labels):
         """
